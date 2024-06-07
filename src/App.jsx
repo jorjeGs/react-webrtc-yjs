@@ -1,46 +1,37 @@
-import { useRef, useState, useEffect } from 'react';
-import Editor from '@monaco-editor/react';
+import React, { useEffect, useState, useRef } from 'react';
 import * as Y from 'yjs';
-import { WebrtcProvider } from 'y-webrtc';
-import { MonacoBinding } from 'y-monaco';
 import { v4 as uuidv4 } from 'uuid';
 
 const signalingServerUrl = 'ws://localhost:1234';
 
 function App() {
-
-  const editorRef = useRef(null);
-  const ws = useRef(null);
+  const [text, setText] = useState('');
   const [roomId, setRoomId] = useState('');
+  const ws = useRef(null);
+  const ydoc = useRef(new Y.Doc());
 
-  const handleEditorDidMount = (editor, monaco) => {
-    editorRef.current = editor;
+  useEffect(() => {
+    const room = new URLSearchParams(window.location.search).get('room');
+    if (room) {
+      setRoomId(room);
+      connectWebSocket(room);
+    } else {
+      createRoom();
+    }
 
-    const doc = new Y.Doc();
-    console.log('doc', doc);
+    const yText = ydoc.current.getText('shared-text');
 
-    // Initialize WebRTC provider with the room ID
-    const provider = new WebrtcProvider(roomId, doc);
-    const type = doc.getText('monaco');
-
-    // Bind Yjs to Monaco editor
-    new MonacoBinding(type, editorRef.current.getModel(), new Set([editorRef.current]), provider.awareness);
-    console.log('provider', provider);
-
-    // Handle signaling messages
-    ws.current.onmessage = (message) => {
-      const data = JSON.parse(message.data);
-      if (data.type === 'signal' && data.room === roomId) {
-        provider.signalingMessage(data.message);
-      }
-    };
-
-    provider.on('signal', (message) => {
-      ws.current.send(JSON.stringify({ type: 'signal', room: roomId, message }));
+    yText.observe(event => {
+      console.log('Text updated:', yText.toString());
+      setText(yText.toString());
     });
-  };
 
-  const createOrJoinRoom = () => {
+    return () => {
+      ydoc.current.destroy();
+    };
+  }, []);
+
+  const createRoom = () => {
     const newRoomId = uuidv4();
     setRoomId(newRoomId);
     window.history.pushState(null, null, `?room=${newRoomId}`);
@@ -54,30 +45,43 @@ function App() {
       ws.current.send(JSON.stringify({ type: 'join', room }));
     };
 
+    ws.current.onmessage = (message) => {
+      const data = JSON.parse(message.data);
+
+      if (data.type === 'init' && data.message) {
+        // Apply the initial state
+        console.log('Received initial data:', new Uint8Array(data.message));
+        Y.applyUpdate(ydoc.current, new Uint8Array(data.message));
+        setText(ydoc.current.getText('shared-text').toString());
+      }
+
+      console.log('Received data:', new Uint8Array(data.message));
+      if (data.type === 'signal' && data.room === room) {
+        Y.applyUpdate(ydoc.current, new Uint8Array(data.message));
+      }
+    };
+
     ws.current.onclose = () => {
       console.log('WebSocket connection closed');
     };
+
+    ydoc.current.on('update', (update) => {
+      ws.current.send(JSON.stringify({ type: 'signal', room, message: Array.from(update) }));
+      console.log('update:', JSON.stringify({ type: 'signal', room, message: new Uint8Array(Array.from(update)) }));
+    });
   };
 
-  useEffect(() => {
-    const room = new URLSearchParams(window.location.search).get('room');
-    if (room) {
-      setRoomId(room);
-      connectWebSocket(room);
-    } else {
-      createOrJoinRoom();
-    }
-  }, []);
+  const handleChange = (e) => {
+    const yText = ydoc.current.getText('shared-text');
+    yText.delete(0, yText.length);
+    yText.insert(0, e.target.value);
+  };
 
   return (
-    <>
-      <Editor
-        height='100vh'
-        width='100vw'
-        theme='vs-dark'
-        onMount={handleEditorDidMount}
-      />
-    </>
+    <div className="App">
+      <textarea value={text} onChange={handleChange} />
+      <p>Room ID: {roomId}</p>
+    </div>
   );
 }
 
