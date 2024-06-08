@@ -21,6 +21,7 @@ function App() {
 
     const yText = ydoc.current.getText('shared-text');
 
+    // Update text state based on Yjs document changes
     yText.observe(event => {
       console.log('Text updated:', yText.toString());
       setText(yText.toString());
@@ -28,6 +29,9 @@ function App() {
 
     return () => {
       ydoc.current.destroy();
+      if (ws.current) {
+        ws.current.close();
+      }
     };
   }, []);
 
@@ -47,16 +51,23 @@ function App() {
 
     ws.current.onmessage = (message) => {
       const data = JSON.parse(message.data);
-      console.log('data:', data);
-      if (data.type === 'init' && data.room === room) {
-        // Apply the initial state
-        console.log('Received initial data:', data.message);
-        
-      }
 
-      console.log('Received data:', data.message);
-      if (data.type === 'signal' && data.room === room) {
-        Y.applyUpdate(ydoc.current, new Uint8Array(data.message));
+      switch (data.type) {
+        case 'init': {
+          // Decode and apply the initial state update received from the server
+          console.log('Initial state:', data.message);
+          const update = Y.decodeUpdate(data.message);
+          ydoc.current.applyUpdate(update);
+          break;
+        }
+        case 'update': {
+          // Decode and apply subsequent state updates
+          const update = Y.decodeUpdate(data.message);
+          ydoc.current.applyUpdate(update);
+          break;
+        }
+        default:
+          console.log('Unknown message type:', data.type);
       }
     };
 
@@ -64,16 +75,19 @@ function App() {
       console.log('WebSocket connection closed');
     };
 
+    // Send updates to the server using Yjs encoded updates
     ydoc.current.on('update', (update) => {
-      ws.current.send(JSON.stringify({ type: 'signal', room, message: Array.from(update) }));
-      console.log('update:', JSON.stringify({ type: 'signal', room, message: Array.from(update) }));
+      console.log('Sending update:', update);
+      const encodedUpdate = Y.encodeStateAsUpdate(ydoc.current);
+      console.log('Encoded update:', encodedUpdate);
+      ws.current.send(JSON.stringify({ type: 'signal', room, message: encodedUpdate }));
     });
   };
 
   const handleChange = (e) => {
     const yText = ydoc.current.getText('shared-text');
-    yText.delete(0, yText.length);
-    yText.insert(0, e.target.value);
+    yText.delete(0, yText.length); // Clear existing text
+    yText.insert(0, e.target.value); // Insert new text
   };
 
   return (
