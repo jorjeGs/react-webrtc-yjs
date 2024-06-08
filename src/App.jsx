@@ -47,15 +47,14 @@ function App() {
 
     ws.current.onmessage = (message) => {
       const data = JSON.parse(message.data);
-
-      if (data.type === 'init' && data.message) {
+      console.log('data:', data);
+      if (data.type === 'init' && data.room === room) {
         // Apply the initial state
-        console.log('Received initial data:', new Uint8Array(data.message));
-        Y.applyUpdate(ydoc.current, new Uint8Array(data.message));
-        setText(ydoc.current.getText('shared-text').toString());
+        console.log('Received initial data:', data.message);
+        
       }
 
-      console.log('Received data:', new Uint8Array(data.message));
+      console.log('Received data:', data.message);
       if (data.type === 'signal' && data.room === room) {
         Y.applyUpdate(ydoc.current, new Uint8Array(data.message));
       }
@@ -67,7 +66,7 @@ function App() {
 
     ydoc.current.on('update', (update) => {
       ws.current.send(JSON.stringify({ type: 'signal', room, message: Array.from(update) }));
-      console.log('update:', JSON.stringify({ type: 'signal', room, message: new Uint8Array(Array.from(update)) }));
+      console.log('update:', JSON.stringify({ type: 'signal', room, message: Array.from(update) }));
     });
   };
 
